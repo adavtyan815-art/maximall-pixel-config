@@ -1,0 +1,34 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+Frontend/implementations/typescript/dist/
+Frontend/library/dist/
+Frontend/ui-library/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.*
+
+# Bundled platform binaries (too large for GitHub — download separately via setup scripts)
+SignallingWebServer/platform_scripts/bash/node/
+SignallingWebServer/platform_scripts/cmd/node/
+SignallingWebServer/platform_scripts/cmd/coturn/
+
