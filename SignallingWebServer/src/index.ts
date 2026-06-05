@@ -158,6 +158,23 @@ program
         'After arguments are parsed the config.json is saved with whatever arguments were specified at launch.',
         config_file.save || false
     )
+    // ── maximall-web backend notification ──────────────────────────────────────
+    .option(
+        '--backend_url <url>',
+        'Base URL of the maximall-web backend (e.g. http://localhost:3000). When set, the server will POST to the backend on streamer disconnect.',
+        config_file.backend_url || ''
+    )
+    .option(
+        '--instance_uuid <uuid>',
+        'The UUID of this EC2 instance as registered in maximall-web. Required when --backend_url is set.',
+        config_file.instance_uuid || ''
+    )
+    .option(
+        '--backend_secret <secret>',
+        'Shared secret sent to maximall-web to authenticate the streamer-disconnected notification.',
+        config_file.backend_secret || ''
+    )
+    // ─────────────────────────────────────────────────────────────────────────
     .helpOption('-h, --help', 'Display this help text.')
     .allowUnknownOption() // ignore unknown options which will allow versions to be swapped out into existing scripts with maybe older/newer options
     .parse();
@@ -233,6 +250,40 @@ if (options.serve) {
 }
 
 const signallingServer = new SignallingServer(serverOpts);
+
+// ── Notify maximall-web when the UE streamer disconnects ──────────────────────
+// The streamerRegistry emits 'removed' every time a streamer is unregistered
+// (transport close, crash, or clean disconnect). We POST a lightweight webhook
+// to maximall-web so it can trigger the grace period and eventually stop the
+// EC2 instance — preventing it from running indefinitely after a UE crash.
+if (options.backend_url && options.instance_uuid) {
+    signallingServer.streamerRegistry.on('removed', (streamerId: string) => {
+        const url = `${options.backend_url as string}/api/instances/${options.instance_uuid as string}/streamer-disconnected`;
+        Logger.info(`Notifying backend of streamer disconnect: streamer=${streamerId} url=${url}`);
+
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                streamerId,
+                secret: options.backend_secret || ''
+            }),
+            signal: AbortSignal.timeout(5000) // 5 s timeout — fire and forget
+        })
+        .then((res) => {
+            if (!res.ok) {
+                Logger.warn(`Backend notification returned non-OK status: ${res.status}`);
+            } else {
+                Logger.info(`Backend notified successfully (streamer=${streamerId})`);
+            }
+        })
+        .catch((err: Error) => {
+            Logger.error(`Failed to notify backend of streamer disconnect: ${err.message}`);
+        });
+    });
+    Logger.info(`Backend notification enabled: ${options.backend_url as string} | instance: ${options.instance_uuid as string}`);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 if (options.stdin) {
     initInputHandler(options, signallingServer);
