@@ -154,13 +154,15 @@ declare global {
         }
     }
 
-    // "Я здесь!" button resets warning and fires immediate socket report
-    stayBtn.addEventListener('click', () => {
-        hideIdleWarning();
-        if (socket) {
-            const now = Date.now();
-            lastActivityReport = now;
-            socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
+    // Clicking anywhere on the screen/page while warning is visible resets warning and fires immediate socket report
+    document.addEventListener('click', () => {
+        if (overlay.classList.contains('visible')) {
+            hideIdleWarning();
+            if (socket) {
+                const now = Date.now();
+                lastActivityReport = now;
+                socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
+            }
         }
     });
 
