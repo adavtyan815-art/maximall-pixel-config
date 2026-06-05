@@ -237,6 +237,11 @@ declare global {
             stopHeartbeat();
         });
 
+        socket.on('reconnect_failed', () => {
+            console.error('[IdleTimeout] Reconnection failed after maximum attempts. Redirecting home.');
+            triggerRedirect();
+        });
+
         // Listen for backend-triggered warnings/timeouts/stops
         socket.on('idle-warning', (data: { remainingMs?: number }) => {
             const secs = Math.round((data?.remainingMs ?? 30_000) / 1000);
