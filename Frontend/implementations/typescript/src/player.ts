@@ -59,55 +59,26 @@ declare global {
 // All connection parameters are passed as URL search params by index.html:
 //   ?backendUrl=…&instanceUuid=…&hostToken=…&deviceId=…
 (function initBackendChannel() {
-    const params   = new URLSearchParams(window.location.search);
-    const backendUrl    = params.get('backendUrl') || '';
-    const instanceUuid  = params.get('instanceUuid') || '';
-    const hostToken     = params.get('hostToken') || '';
-    const deviceId      = params.get('deviceId') || localStorage.getItem('deviceId') || '';
+    const params = new URLSearchParams(window.location.search);
+    const backendUrl = params.get('backendUrl') || '';
+    const instanceUuid = params.get('instanceUuid') || '';
+    const hostToken = params.get('hostToken') || '';
+    const deviceId = params.get('deviceId') || localStorage.getItem('deviceId') || '';
 
-    if (!backendUrl || !instanceUuid || !hostToken) {
-        console.warn('[IdleTimeout] Missing backendUrl / instanceUuid / hostToken — back-channel disabled.');
-        return;
-    }
+    // ── Inactivity config ──
+    const idleMinutes = parseFloat(params.get('idleTimeoutMinutes') || '5');
+    const idleMs = idleMinutes * 60 * 1000;
 
-    // ── 1. Dynamically load the Socket.io client from the backend origin ──
-    //    (avoids bundling socket.io-client into the webpack bundle)
-    const script = document.createElement('script');
-    script.src = `${backendUrl}/socket.io/socket.io.js`;
-    script.onload = () => onSocketIoReady(backendUrl, instanceUuid, hostToken, deviceId);
-    script.onerror = () => console.error('[IdleTimeout] Failed to load socket.io client from', backendUrl);
-    document.head.appendChild(script);
-})();
-
-function onSocketIoReady(
-    backendUrl: string,
-    instanceUuid: string,
-    hostToken: string,
-    deviceId: string
-) {
-    // io() is now available on window from the dynamically loaded script
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const io: (url: string, opts?: any) => any = (window as any).io;
-    if (typeof io !== 'function') {
-        console.error('[IdleTimeout] window.io not found after script load.');
-        return;
-    }
-
-    const socket = io(backendUrl, {
-        transports: ['websocket', 'polling'],
-        withCredentials: true,
-        reconnection: true,
-        reconnectionDelay: 2000,
-        reconnectionAttempts: 10,
-    });
-
-    // ── Idle warning modal refs ──────────────────────────────────────────
-    const overlay      = document.getElementById('idle-warning-overlay')!;
-    const countdownEl  = document.getElementById('idle-countdown')!;
-    const stayBtn      = document.getElementById('idle-warning-btn')!;
-
+    let idleTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let countdownTimer: ReturnType<typeof setInterval> | null = null;
     let countdownSecs = 30;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let socket: any = null;
+
+    // ── Idle warning modal refs ──────────────────────────────────────────
+    const overlay = document.getElementById('idle-warning-overlay')!;
+    const countdownEl = document.getElementById('idle-countdown')!;
+    const stayBtn = document.getElementById('idle-warning-btn')!;
 
     function showIdleWarning(remainingSecs: number) {
         countdownSecs = remainingSecs;
@@ -118,45 +89,84 @@ function onSocketIoReady(
         countdownTimer = setInterval(() => {
             countdownSecs--;
             countdownEl.textContent = String(Math.max(0, countdownSecs));
-            if (countdownSecs <= 0) clearInterval(countdownTimer!);
+            if (countdownSecs <= 0) {
+                clearInterval(countdownTimer!);
+                triggerRedirect();
+            }
         }, 1000);
     }
 
     function hideIdleWarning() {
         overlay.classList.remove('visible');
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+        startIdleTimer();
     }
 
-    // "I'm still here" button → report activity immediately and hide warning
-    stayBtn.addEventListener('click', () => {
+    function triggerRedirect() {
+        console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
         hideIdleWarning();
-        // Force direct activity emission bypassing the visibility check
-        const now = Date.now();
-        lastActivityReport = now;
-        socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
-    });
+        stopIdleTimer();
 
-    // ── 2. Report user activity ──────────────────────────────────────────
-    // Debounce: fire at most once every 30 seconds so we don't spam the server.
+        if (socket) {
+            socket.emit('player-disconnect', { instanceUuid, hostToken });
+            try { socket.disconnect(); } catch {}
+        }
+
+        sessionStorage.removeItem('assignedUuid');
+        sessionStorage.removeItem('global_hostToken');
+
+        setTimeout(() => {
+            window.location.href = backendUrl || '/';
+        }, 1500);
+    }
+
+    function startIdleTimer() {
+        if (idleTimeoutTimer) clearTimeout(idleTimeoutTimer);
+        console.log(`[IdleTimeout] Local idle timer started: ${idleMinutes} mins (${idleMs} ms)`);
+        idleTimeoutTimer = setTimeout(() => {
+            showIdleWarning(30);
+        }, idleMs);
+    }
+
+    function stopIdleTimer() {
+        if (idleTimeoutTimer) { clearTimeout(idleTimeoutTimer); idleTimeoutTimer = null; }
+    }
+
+    // ── 2. Report user activity & Reset local timer ───────────────────────
     let activityDebounceTimer: ReturnType<typeof setTimeout> | null = null;
     let lastActivityReport = 0;
     const ACTIVITY_DEBOUNCE_MS = 30_000;
 
     function reportActivity() {
-        // If the warning modal is visible, ignore background interaction.
-        // User must explicitly click the button to dismiss.
+        // If warning is visible, background activities do NOT dismiss it
         if (overlay.classList.contains('visible')) return;
 
-        const now = Date.now();
-        if (now - lastActivityReport < ACTIVITY_DEBOUNCE_MS) return;
-        lastActivityReport = now;
-        socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
+        // Reset local timer
+        startIdleTimer();
+
+        // Notify backend of activity
+        if (socket) {
+            const now = Date.now();
+            if (now - lastActivityReport < ACTIVITY_DEBOUNCE_MS) return;
+            lastActivityReport = now;
+            socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
+        }
     }
 
+    // "Я здесь!" button resets warning and fires immediate socket report
+    stayBtn.addEventListener('click', () => {
+        hideIdleWarning();
+        if (socket) {
+            const now = Date.now();
+            lastActivityReport = now;
+            socket.emit('user-activity', { instanceUuid, hostToken, deviceId });
+        }
+    });
+
+    // Listen to user input immediately on page load
     const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'wheel'];
     ACTIVITY_EVENTS.forEach(evt => {
         document.addEventListener(evt, () => {
-            // Use a small leading debounce so rapid events collapse to one call
             if (activityDebounceTimer) return;
             activityDebounceTimer = setTimeout(() => {
                 activityDebounceTimer = null;
@@ -165,14 +175,19 @@ function onSocketIoReady(
         }, { passive: true });
     });
 
-    // ── 3. Periodic heartbeat (every 10s) ────────────────────────────────
+    // Start local timer immediately on load
+    startIdleTimer();
+
+    // ── 3. Heartbeat & Socket setup ──
     const HEARTBEAT_INTERVAL_MS = 10_000;
     let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
     function startHeartbeat() {
         if (heartbeatInterval) return;
         heartbeatInterval = setInterval(() => {
-            socket.emit('heartbeat', { instanceUuid, hostToken, deviceId });
+            if (socket) {
+                socket.emit('heartbeat', { instanceUuid, hostToken, deviceId });
+            }
         }, HEARTBEAT_INTERVAL_MS);
     }
 
@@ -180,65 +195,81 @@ function onSocketIoReady(
         if (heartbeatInterval) { clearInterval(heartbeatInterval); heartbeatInterval = null; }
     }
 
-    // ── 4. Socket events ─────────────────────────────────────────────────
-    socket.on('connect', () => {
-        console.log('[IdleTimeout] Connected to maximall-web backend.');
+    if (!backendUrl || !instanceUuid || !hostToken) {
+        console.warn('[IdleTimeout] Missing backendUrl / instanceUuid / hostToken — back-channel disabled.');
+        return;
+    }
 
-        // Register this display session with the backend
-        socket.emit('display-start', { instanceUuid, hostToken, deviceId });
-        socket.emit('join-instance', instanceUuid);
+    // Dynamically load the Socket.io client from the backend origin
+    const script = document.createElement('script');
+    script.src = `${backendUrl}/socket.io/socket.io.js`;
+    script.onload = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const io: (url: string, opts?: any) => any = (window as any).io;
+        if (typeof io !== 'function') {
+            console.error('[IdleTimeout] window.io not found after script load.');
+            return;
+        }
 
-        startHeartbeat();
-    });
+        socket = io(backendUrl, {
+            transports: ['websocket', 'polling'],
+            withCredentials: true,
+            reconnection: true,
+            reconnectionDelay: 2000,
+            reconnectionAttempts: 10,
+        });
 
-    socket.on('disconnect', (reason: string) => {
-        console.warn('[IdleTimeout] Disconnected from backend:', reason);
-        stopHeartbeat();
-    });
+        socket.on('connect', () => {
+            console.log('[IdleTimeout] Connected to maximall-web backend.');
 
-    // ── Backend: show warning countdown ─────────────────────────────────
-    socket.on('idle-warning', (data: { remainingMs?: number }) => {
-        const secs = Math.round((data?.remainingMs ?? 30_000) / 1000);
-        console.warn('[IdleTimeout] Idle warning received — countdown:', secs, 's');
-        showIdleWarning(secs);
-    });
+            // Register this display session with the backend
+            socket.emit('display-start', { instanceUuid, hostToken, deviceId });
+            socket.emit('join-instance', instanceUuid);
 
-    // ── Backend: session timed out — redirect home ───────────────────────
-    socket.on('idle-timeout', () => {
-        console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
-        hideIdleWarning();
-        stopHeartbeat();
+            startHeartbeat();
+        });
 
-        // Clear any stored session so index.html starts fresh
-        sessionStorage.removeItem('assignedUuid');
-        sessionStorage.removeItem('global_hostToken');
+        socket.on('disconnect', (reason: string) => {
+            console.warn('[IdleTimeout] Disconnected from backend:', reason);
+            stopHeartbeat();
+        });
 
-        // Give the user a brief moment to see what happened
-        setTimeout(() => {
-            window.location.href = new URLSearchParams(window.location.search).get('backendUrl') || '/';
-        }, 1500);
-    });
+        // Listen for backend-triggered warnings/timeouts/stops
+        socket.on('idle-warning', (data: { remainingMs?: number }) => {
+            const secs = Math.round((data?.remainingMs ?? 30_000) / 1000);
+            console.warn('[IdleTimeout] Idle warning received — countdown:', secs, 's');
+            showIdleWarning(secs);
+        });
 
-    // ── Backend: EC2 is shutting down — redirect home ────────────────────
-    socket.on('instance-stopping', () => {
-        console.warn('[IdleTimeout] Instance is stopping. Redirecting to home.');
-        hideIdleWarning();
-        stopHeartbeat();
+        socket.on('idle-timeout', () => {
+            console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
+            triggerRedirect();
+        });
 
-        sessionStorage.removeItem('assignedUuid');
-        sessionStorage.removeItem('global_hostToken');
+        socket.on('instance-stopping', () => {
+            console.warn('[IdleTimeout] Instance is stopping. Redirecting to home.');
+            hideIdleWarning();
+            stopHeartbeat();
 
-        setTimeout(() => {
-            window.location.href = new URLSearchParams(window.location.search).get('backendUrl') || '/';
-        }, 2000);
-    });
+            sessionStorage.removeItem('assignedUuid');
+            sessionStorage.removeItem('global_hostToken');
 
-    // ── Send explicit disconnect when the tab closes / navigates away ────
+            setTimeout(() => {
+                window.location.href = new URLSearchParams(window.location.search).get('backendUrl') || '/';
+            }, 2000);
+        });
+    };
+    script.onerror = () => console.error('[IdleTimeout] Failed to load socket.io client from', backendUrl);
+    document.head.appendChild(script);
+
+    // Send explicit disconnect when the tab closes / navigates away
     window.addEventListener('beforeunload', () => {
-        socket.emit('player-disconnect', { instanceUuid, hostToken });
+        if (socket) {
+            socket.emit('player-disconnect', { instanceUuid, hostToken });
+        }
         stopHeartbeat();
     });
-}
+})()
 // ─────────────────────────────────────────────────────────────────────────────
 
 document.body.onload = function() {
