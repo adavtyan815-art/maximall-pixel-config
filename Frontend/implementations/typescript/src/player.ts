@@ -66,9 +66,8 @@ declare global {
     const deviceId = params.get('deviceId') || localStorage.getItem('deviceId') || '';
 
     // ── Inactivity config ──
-    // Hardcoded to 15 seconds (15000 ms) for local testing phase
-    const idleMinutes = 0.25;
-    const idleMs = 15000;
+    const idleMinutes = parseFloat(params.get('idleTimeoutMinutes') || '5');
+    const idleMs = idleMinutes * 60 * 1000;
 
     let idleTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let countdownTimer: ReturnType<typeof setInterval> | null = null;
