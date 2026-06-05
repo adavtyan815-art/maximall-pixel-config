@@ -66,8 +66,8 @@ declare global {
     const deviceId = params.get('deviceId') || localStorage.getItem('deviceId') || '';
 
     // ── Inactivity config ──
-    const idleMinutes = parseFloat(params.get('idleTimeoutMinutes') || '5');
-    const idleMs = idleMinutes * 60 * 1000;
+    let idleMinutes = parseFloat(params.get('idleTimeoutMinutes') || '5');
+    let idleMs = idleMinutes * 60 * 1000;
 
     let idleTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let countdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -229,6 +229,16 @@ declare global {
             socket.emit('join-instance', instanceUuid);
 
             startHeartbeat();
+        });
+
+        socket.on('display-started', (data: { success: boolean; hostToken: string; idleTimeoutMinutes?: number }) => {
+            console.log('[IdleTimeout] Display session verified by backend.');
+            if (!params.has('idleTimeoutMinutes') && data && typeof data.idleTimeoutMinutes === 'number') {
+                idleMinutes = data.idleTimeoutMinutes;
+                idleMs = idleMinutes * 60 * 1000;
+                console.log(`[IdleTimeout] Applying backend-configured timeout: ${idleMinutes} mins (${idleMs} ms)`);
+                startIdleTimer();
+            }
         });
 
         socket.on('disconnect', (reason: string) => {
