@@ -74,6 +74,8 @@ declare global {
     let countdownSecs = 30;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let socket: any = null;
+    let isRedirecting = false;
+    let disconnectRedirectTimer: ReturnType<typeof setTimeout> | null = null;
 
     // ── Idle warning modal refs ──────────────────────────────────────────
     const overlay = document.getElementById('idle-warning-overlay')!;
@@ -91,7 +93,7 @@ declare global {
             countdownEl.textContent = String(Math.max(0, countdownSecs));
             if (countdownSecs <= 0) {
                 clearInterval(countdownTimer!);
-                triggerRedirect();
+                triggerRedirect('idle');
             }
         }, 1000);
     }
@@ -102,10 +104,18 @@ declare global {
         startIdleTimer();
     }
 
-    function triggerRedirect() {
-        console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
+    function triggerRedirect(reason?: string) {
+        if (isRedirecting) return;
+        isRedirecting = true;
+
+        console.warn(`[IdleTimeout] Session timed out. Redirecting to home. Reason: ${reason}`);
         hideIdleWarning();
         stopIdleTimer();
+
+        if (disconnectRedirectTimer) {
+            clearTimeout(disconnectRedirectTimer);
+            disconnectRedirectTimer = null;
+        }
 
         if (socket) {
             socket.emit('player-disconnect', { instanceUuid, hostToken });
@@ -116,7 +126,21 @@ declare global {
         sessionStorage.removeItem('global_hostToken');
 
         setTimeout(() => {
-            window.location.href = backendUrl || '/';
+            let targetUrl = backendUrl || '/';
+            if (reason === 'idle') {
+                try {
+                    const url = new URL(targetUrl, window.location.origin);
+                    url.searchParams.set('reason', 'idle');
+                    targetUrl = url.toString();
+                } catch {
+                    if (targetUrl.includes('?')) {
+                        targetUrl += '&reason=idle';
+                    } else {
+                        targetUrl += '?reason=idle';
+                    }
+                }
+            }
+            window.location.href = targetUrl;
         }, 1500);
     }
 
@@ -224,6 +248,11 @@ declare global {
         socket.on('connect', () => {
             console.log('[IdleTimeout] Connected to maximall-web backend.');
 
+            if (disconnectRedirectTimer) {
+                clearTimeout(disconnectRedirectTimer);
+                disconnectRedirectTimer = null;
+            }
+
             // Register this display session with the backend
             socket.emit('display-start', { instanceUuid, hostToken, deviceId });
             socket.emit('join-instance', instanceUuid);
@@ -244,6 +273,15 @@ declare global {
         socket.on('disconnect', (reason: string) => {
             console.warn('[IdleTimeout] Disconnected from backend:', reason);
             stopHeartbeat();
+
+            if (!isRedirecting) {
+                if (disconnectRedirectTimer) clearTimeout(disconnectRedirectTimer);
+                console.warn('[IdleTimeout] Starting 15-second disconnection watchdog timer.');
+                disconnectRedirectTimer = setTimeout(() => {
+                    console.error('[IdleTimeout] Watchdog timer expired: No connection for 15s. Redirecting.');
+                    triggerRedirect();
+                }, 15000);
+            }
         });
 
         socket.on('reconnect_failed', () => {
@@ -260,11 +298,16 @@ declare global {
 
         socket.on('idle-timeout', () => {
             console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
-            triggerRedirect();
+            triggerRedirect('idle');
         });
 
         socket.on('instance-stopping', () => {
             console.warn('[IdleTimeout] Instance is stopping. Redirecting to home.');
+            isRedirecting = true;
+            if (disconnectRedirectTimer) {
+                clearTimeout(disconnectRedirectTimer);
+                disconnectRedirectTimer = null;
+            }
             hideIdleWarning();
             stopHeartbeat();
 
