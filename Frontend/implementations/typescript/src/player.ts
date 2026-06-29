@@ -388,17 +388,13 @@ document.body.onload = function() {
         // Wait until the stream is connected before registering the listener.
         // addResponseEventListener is available immediately on the stream object.
         stream.addResponseEventListener('MaxiMallCursor', (rawData: string) => {
-            try {
-                const msg = JSON.parse(rawData);
-                if (msg && msg.type === 'cursor') {
-                    if (msg.cursor === 'pointer') {
-                        document.body.classList.add('ps-cursor-pointer');
-                    } else {
-                        document.body.classList.remove('ps-cursor-pointer');
-                    }
-                }
-            } catch {
-                // Silently ignore malformed messages from other data channel sources.
+            // rawData contains the text following the "MaxiMallCursor" prefix.
+            // Expected: " pointer" or " default".
+            const cursor = rawData.trim();
+            if (cursor === 'pointer') {
+                document.body.classList.add('ps-cursor-pointer');
+            } else if (cursor === 'default') {
+                document.body.classList.remove('ps-cursor-pointer');
             }
         });
 
