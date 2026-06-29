@@ -366,4 +366,44 @@ document.body.onload = function() {
 	document.body.appendChild(application.rootElement);
 
 	window.pixelStreaming = stream;
+
+    // ── Pixel Streaming cursor data-channel listener ──────────────────────────
+    // UE5 sends { "type": "cursor", "cursor": "pointer" | "default" } via the
+    // Pixel Streaming Response data channel whenever the hover state changes over
+    // an interactive mesh (see MaxiMallPreviewController::BroadcastCursorState).
+    //
+    // We apply it directly to document.body.style.cursor so the real browser
+    // cursor changes instantly with zero stream latency. A dedicated CSS class
+    // (ps-cursor-pointer) is used so it can be cleanly removed without touching
+    // any other inline styles, and it integrates correctly with the existing
+    // LMB-hide logic above (which uses !important and therefore takes precedence
+    // only while the left mouse button is physically held down).
+    (function installPixelStreamingCursorHandler() {
+        // Inject a stylesheet rule for the sentinel class.
+        const style = document.createElement('style');
+        style.id = 'ps-cursor-style';
+        style.textContent = 'body.ps-cursor-pointer { cursor: pointer !important; }';
+        document.head.appendChild(style);
+
+        // Wait until the stream is connected before registering the listener.
+        // addResponseEventListener is available immediately on the stream object.
+        stream.addResponseEventListener('MaxiMallCursor', (rawData: string) => {
+            try {
+                const msg = JSON.parse(rawData);
+                if (msg && msg.type === 'cursor') {
+                    if (msg.cursor === 'pointer') {
+                        document.body.classList.add('ps-cursor-pointer');
+                    } else {
+                        document.body.classList.remove('ps-cursor-pointer');
+                    }
+                }
+            } catch {
+                // Silently ignore malformed messages from other data channel sources.
+            }
+        });
+
+        console.log('[MaxiMall] Pixel Streaming cursor data-channel listener registered.');
+    })();
+    // ─────────────────────────────────────────────────────────────────────────
 }
+
