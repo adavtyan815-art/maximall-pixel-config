@@ -380,20 +380,21 @@ document.body.onload = function() {
     // only while the left mouse button is physically held down).
     (function installPixelStreamingCursorHandler() {
         // Inject a stylesheet rule for the sentinel class.
+        // Direct cursor rules on child elements (like the video container) override inherited 
+        // body cursor styles, so we must target body.ps-cursor-pointer * (all descendants) as well.
         const style = document.createElement('style');
         style.id = 'ps-cursor-style';
-        style.textContent = 'body.ps-cursor-pointer { cursor: pointer !important; }';
+        style.textContent = 'body.ps-cursor-pointer, body.ps-cursor-pointer * { cursor: pointer !important; }';
         document.head.appendChild(style);
 
         // Wait until the stream is connected before registering the listener.
         // addResponseEventListener is available immediately on the stream object.
         stream.addResponseEventListener('MaxiMallCursor', (rawData: string) => {
-            // rawData contains the text following the "MaxiMallCursor" prefix.
-            // Expected: " pointer" or " default".
+            console.log('[MaxiMall] Received hover event payload:', rawData);
             const cursor = rawData.trim();
-            if (cursor === 'pointer') {
+            if (cursor.includes('pointer')) {
                 document.body.classList.add('ps-cursor-pointer');
-            } else if (cursor === 'default') {
+            } else if (cursor.includes('default')) {
                 document.body.classList.remove('ps-cursor-pointer');
             }
         });
@@ -401,5 +402,31 @@ document.body.onload = function() {
         console.log('[MaxiMall] Pixel Streaming cursor data-channel listener registered.');
     })();
     // ─────────────────────────────────────────────────────────────────────────
+
+    // ─── Global cursor hide/show on RMB ──────────────────────────────────────────
+    // Completely isolated block to hide the cursor on Right Mouse Button hold.
+    // Preserves existing LMB logic without modification.
+    (function installRmbCursorHideStyle() {
+        const style = document.createElement('style');
+        style.id = 'rmb-cursor-hide';
+        style.textContent = 'html.rmb-down, html.rmb-down * { cursor: none !important; }';
+        document.head.appendChild(style);
+
+        document.addEventListener('mousedown', (event: MouseEvent) => {
+            if (event.button === 2) {
+                document.documentElement.classList.add('rmb-down');
+            }
+        });
+        document.addEventListener('mouseup', (event: MouseEvent) => {
+            if (event.button === 2) {
+                document.documentElement.classList.remove('rmb-down');
+            }
+        });
+        window.addEventListener('mouseup', (event: MouseEvent) => {
+            if (event.button === 2) {
+                document.documentElement.classList.remove('rmb-down');
+            }
+        });
+    })();
 }
 
