@@ -151,7 +151,8 @@ export class PixelStreamingApplicationStyle {
         '#controls': {
             position: 'absolute',
             top: '3%',
-            left: '2%',
+            right: '2%',
+            zIndex: '100',
             fontFamily: "'Michroma', sans-serif",
             pointerEvents: 'all',
             display: 'block'
