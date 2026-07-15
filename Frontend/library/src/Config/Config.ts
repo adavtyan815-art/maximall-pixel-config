@@ -325,7 +325,7 @@ export class Config {
                 'Make browser request microphone access and open an input audio track.',
                 settings && Object.prototype.hasOwnProperty.call(settings, Flags.UseMic)
                     ? settings[Flags.UseMic]
-                    : false,
+                    : true,
                 useUrlParams
             )
         );

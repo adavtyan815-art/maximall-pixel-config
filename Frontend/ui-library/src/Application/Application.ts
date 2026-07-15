@@ -388,7 +388,13 @@ export class Application {
             }
         });
         this.stream.addResponseEventListener("handle_responses", (response) => {
-switch (response) {
+            if (response.startsWith("open_url:")) {
+                const url = response.substring("open_url:".length).trim();
+                console.log("[PixelStreaming] Opening URL in new tab:", url);
+                window.open(url, '_blank');
+                return;
+            }
+            switch (response) {
      case "HoveringMouse":
      this.stream.config.setSettings({ HoveringMouse: true });
             console.log("Включаем HoveringMouse");
