@@ -432,13 +432,11 @@ document.body.onload = function() {
     // ─── Clipboard Sync ──────────────────────────────────────────────────────────
     (function installClipboardSyncHandler() {
         // Listen for browser paste events and send text to UE5
-        window.addEventListener('paste', async (event: ClipboardEvent) => {
+        window.addEventListener('paste', (event: ClipboardEvent) => {
             event.preventDefault();
             let pasteText = "";
             if (event.clipboardData) {
                 pasteText = event.clipboardData.getData('text');
-            } else if (navigator.clipboard) {
-                pasteText = await navigator.clipboard.readText();
             }
             if (pasteText) {
                 stream.emitUIInteraction({
@@ -450,15 +448,18 @@ document.body.onload = function() {
 
         // Listen for copy responses from UE5 and write to browser clipboard
         stream.addResponseEventListener('MaxiMallClipboard', (rawData: string) => {
-            const textToCopy = rawData.trim();
-            if (textToCopy) {
-                navigator.clipboard.writeText(textToCopy)
-                    .then(() => {
-                        console.log('[MaxiMall] Successfully copied remote text to client clipboard.');
-                    })
-                    .catch(err => {
-                        console.error('[MaxiMall] Failed to write to client clipboard: ', err);
-                    });
+            const trimmedData = rawData.trim();
+            if (trimmedData.startsWith('MaxiMallClipboard ')) {
+                const textToCopy = trimmedData.substring('MaxiMallClipboard '.length).trim();
+                if (textToCopy) {
+                    navigator.clipboard.writeText(textToCopy)
+                        .then(() => {
+                            console.log('[MaxiMall] Successfully copied remote text to client clipboard.');
+                        })
+                        .catch(err => {
+                            console.error('[MaxiMall] Failed to write to client clipboard: ', err);
+                        });
+                }
             }
         });
         console.log('[MaxiMall] Pixel Streaming clipboard sync handler registered.');
