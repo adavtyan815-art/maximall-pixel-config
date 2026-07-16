@@ -453,16 +453,30 @@ document.body.onload = function() {
                 const textToCopy = trimmedData.substring('MaxiMallClipboard '.length).trim();
                 if (textToCopy) {
                     navigator.clipboard.writeText(textToCopy)
-                        .then(() => {
-                            console.log('[MaxiMall] Successfully copied remote text to client clipboard.');
-                        })
                         .catch(err => {
                             console.error('[MaxiMall] Failed to write to client clipboard: ', err);
                         });
                 }
             }
         });
-        console.log('[MaxiMall] Pixel Streaming clipboard sync handler registered.');
     })();
+
+    // ─── URL Redirect ────────────────────────────────────────────────────────────
+    // UE5 calls SendOpenURLToBrowser(URL) which sends "open_url: <URL>" via the
+    // Pixel Streaming Response data channel. We listen for it here and open the
+    // URL in a new browser tab.
+    (function installOpenURLHandler() {
+        stream.addResponseEventListener('open_url', (rawData: string) => {
+            const prefix = 'open_url: ';
+            const trimmed = rawData.trim();
+            if (trimmed.startsWith(prefix)) {
+                const url = trimmed.substring(prefix.length).trim();
+                if (url) {
+                    window.open(url, '_blank');
+                }
+            }
+        });
+    })();
+    // ─────────────────────────────────────────────────────────────────────────
 }
 

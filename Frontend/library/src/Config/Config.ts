@@ -442,7 +442,7 @@ export class Config {
                 'Pixel Streaming will be instructed to dynamically resize the video stream to match the size of the video element.',
                 settings && Object.prototype.hasOwnProperty.call(settings, Flags.MatchViewportResolution)
                     ? settings[Flags.MatchViewportResolution]
-                    : false,
+                    : true,
                 useUrlParams
             )
         );
