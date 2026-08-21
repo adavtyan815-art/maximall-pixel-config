@@ -89,7 +89,7 @@ export class PixelStreamingApplicationStyle {
             position: 'absolute',
             top: '0',
             transform: 'translateY(25%)',
-            right: '125%',
+            left: '125%',
             zIndex: '20'
         },
         '.UiTool:hover .tooltiptext': {
@@ -98,16 +98,15 @@ export class PixelStreamingApplicationStyle {
         },
         '#connection .tooltiptext': {
             top: '125%',
-            transform: 'translateX(25%)',
-            right: '0',
+            transform: 'translateX(-25%)',
+            left: '0',
             zIndex: '20',
             padding: '5px 10px'
         },
         '#connection': {
             position: 'absolute',
             bottom: '8%',
-            right: '5%',
-            zIndex: '20',
+            left: '5%',
             fontFamily: "'Michroma', sans-serif",
             height: '3rem',
             width: '3rem',
@@ -152,8 +151,7 @@ export class PixelStreamingApplicationStyle {
         '#controls': {
             position: 'absolute',
             top: '3%',
-            right: '2%',
-            zIndex: '100',
+            left: '2%',
             fontFamily: "'Michroma', sans-serif",
             pointerEvents: 'all',
             display: 'block'
@@ -239,11 +237,11 @@ export class PixelStreamingApplicationStyle {
             position: 'absolute',
             top: '0',
             bottom: '0',
-            left: '0',
+            right: '0',
             height: '100%',
             minWidth: '20vw',
             maxWidth: '90vw',
-            transform: 'translateX(-100%)',
+            transform: 'translateX(100%)',
             transition: '.3s ease-out',
             pointerEvents: 'all',
             overflowY: 'auto',

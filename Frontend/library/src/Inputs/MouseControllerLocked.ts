@@ -14,9 +14,6 @@ export class MouseControllerLocked extends MouseController {
     x: number;
     y: number;
     normalizedCoord: TranslatedCoordUnsigned;
-    private accumulatedMovementX = 0;
-    private accumulatedMovementY = 0;
-    private throttleTimer: any = null;
 
     // bound listeners
     onRequestLockListener: () => void;
@@ -69,11 +66,6 @@ export class MouseControllerLocked extends MouseController {
     }
 
     override unregister() {
-        if (this.throttleTimer) {
-            clearTimeout(this.throttleTimer);
-            this.throttleTimer = null;
-        }
-
         const pointerLockElement = document.pointerLockElement || document.mozPointerLockElement;
         if (document.exitPointerLock && pointerLockElement === this.videoElementParent) {
             document.exitPointerLock();
@@ -146,35 +138,11 @@ export class MouseControllerLocked extends MouseController {
         if (!this.videoPlayer.isVideoReady()) {
             return;
         }
-
-        this.accumulatedMovementX += event.movementX;
-        this.accumulatedMovementY += event.movementY;
-
-        if (this.throttleTimer) {
-            return;
-        }
-
-        this.throttleTimer = setTimeout(() => {
-            this.flushMouseMove();
-        }, 16);
-    }
-
-    private flushMouseMove() {
-        this.throttleTimer = null;
-        if (this.accumulatedMovementX === 0 && this.accumulatedMovementY === 0) {
-            return;
-        }
-
         const styleWidth = this.videoPlayer.getVideoParentElement().clientWidth;
         const styleHeight = this.videoPlayer.getVideoParentElement().clientHeight;
 
-        this.x += this.accumulatedMovementX;
-        this.y += this.accumulatedMovementY;
-
-        const sendMovX = this.accumulatedMovementX;
-        const sendMovY = this.accumulatedMovementY;
-        this.accumulatedMovementX = 0;
-        this.accumulatedMovementY = 0;
+        this.x += event.movementX;
+        this.y += event.movementY;
 
         while (this.x > styleWidth) {
             this.x -= styleWidth;
@@ -190,7 +158,7 @@ export class MouseControllerLocked extends MouseController {
         }
 
         this.normalizedCoord = this.coordinateConverter.translateUnsigned(this.x, this.y);
-        const delta = this.coordinateConverter.translateSigned(sendMovX, sendMovY);
+        const delta = this.coordinateConverter.translateSigned(event.movementX, event.movementY);
         this.streamMessageController.toStreamerHandlers.get('MouseMove')([
             this.normalizedCoord.x,
             this.normalizedCoord.y,

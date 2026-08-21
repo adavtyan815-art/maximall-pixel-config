@@ -74,8 +74,6 @@ declare global {
     let countdownSecs = 30;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let socket: any = null;
-    let isRedirecting = false;
-    let disconnectRedirectTimer: ReturnType<typeof setTimeout> | null = null;
 
     // ── Idle warning modal refs ──────────────────────────────────────────
     const overlay = document.getElementById('idle-warning-overlay')!;
@@ -93,7 +91,7 @@ declare global {
             countdownEl.textContent = String(Math.max(0, countdownSecs));
             if (countdownSecs <= 0) {
                 clearInterval(countdownTimer!);
-                triggerRedirect('idle');
+                triggerRedirect();
             }
         }, 1000);
     }
@@ -104,18 +102,10 @@ declare global {
         startIdleTimer();
     }
 
-    function triggerRedirect(reason?: string) {
-        if (isRedirecting) return;
-        isRedirecting = true;
-
-        console.warn(`[IdleTimeout] Session timed out. Redirecting to home. Reason: ${reason}`);
+    function triggerRedirect() {
+        console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
         hideIdleWarning();
         stopIdleTimer();
-
-        if (disconnectRedirectTimer) {
-            clearTimeout(disconnectRedirectTimer);
-            disconnectRedirectTimer = null;
-        }
 
         if (socket) {
             socket.emit('player-disconnect', { instanceUuid, hostToken });
@@ -126,21 +116,7 @@ declare global {
         sessionStorage.removeItem('global_hostToken');
 
         setTimeout(() => {
-            let targetUrl = backendUrl || '/';
-            if (reason === 'idle') {
-                try {
-                    const url = new URL(targetUrl, window.location.origin);
-                    url.searchParams.set('reason', 'idle');
-                    targetUrl = url.toString();
-                } catch {
-                    if (targetUrl.includes('?')) {
-                        targetUrl += '&reason=idle';
-                    } else {
-                        targetUrl += '?reason=idle';
-                    }
-                }
-            }
-            window.location.href = targetUrl;
+            window.location.href = backendUrl || '/';
         }, 1500);
     }
 
@@ -248,11 +224,6 @@ declare global {
         socket.on('connect', () => {
             console.log('[IdleTimeout] Connected to maximall-web backend.');
 
-            if (disconnectRedirectTimer) {
-                clearTimeout(disconnectRedirectTimer);
-                disconnectRedirectTimer = null;
-            }
-
             // Register this display session with the backend
             socket.emit('display-start', { instanceUuid, hostToken, deviceId });
             socket.emit('join-instance', instanceUuid);
@@ -273,15 +244,6 @@ declare global {
         socket.on('disconnect', (reason: string) => {
             console.warn('[IdleTimeout] Disconnected from backend:', reason);
             stopHeartbeat();
-
-            if (!isRedirecting) {
-                if (disconnectRedirectTimer) clearTimeout(disconnectRedirectTimer);
-                console.warn('[IdleTimeout] Starting 15-second disconnection watchdog timer.');
-                disconnectRedirectTimer = setTimeout(() => {
-                    console.error('[IdleTimeout] Watchdog timer expired: No connection for 15s. Redirecting.');
-                    triggerRedirect();
-                }, 15000);
-            }
         });
 
         socket.on('reconnect_failed', () => {
@@ -298,16 +260,11 @@ declare global {
 
         socket.on('idle-timeout', () => {
             console.warn('[IdleTimeout] Session timed out. Redirecting to home.');
-            triggerRedirect('idle');
+            triggerRedirect();
         });
 
         socket.on('instance-stopping', () => {
             console.warn('[IdleTimeout] Instance is stopping. Redirecting to home.');
-            isRedirecting = true;
-            if (disconnectRedirectTimer) {
-                clearTimeout(disconnectRedirectTimer);
-                disconnectRedirectTimer = null;
-            }
             hideIdleWarning();
             stopHeartbeat();
 
@@ -366,117 +323,4 @@ document.body.onload = function() {
 	document.body.appendChild(application.rootElement);
 
 	window.pixelStreaming = stream;
-
-    // ── Pixel Streaming cursor data-channel listener ──────────────────────────
-    // UE5 sends { "type": "cursor", "cursor": "pointer" | "default" } via the
-    // Pixel Streaming Response data channel whenever the hover state changes over
-    // an interactive mesh (see MaxiMallPreviewController::BroadcastCursorState).
-    //
-    // We apply it directly to document.body.style.cursor so the real browser
-    // cursor changes instantly with zero stream latency. A dedicated CSS class
-    // (ps-cursor-pointer) is used so it can be cleanly removed without touching
-    // any other inline styles, and it integrates correctly with the existing
-    // LMB-hide logic above (which uses !important and therefore takes precedence
-    // only while the left mouse button is physically held down).
-    (function installPixelStreamingCursorHandler() {
-        // Inject a stylesheet rule for the sentinel class.
-        // Direct cursor rules on child elements (like the video container) override inherited 
-        // body cursor styles, so we must target body.ps-cursor-pointer * (all descendants) as well.
-        const style = document.createElement('style');
-        style.id = 'ps-cursor-style';
-        style.textContent = 'body.ps-cursor-pointer, body.ps-cursor-pointer * { cursor: pointer !important; }';
-        document.head.appendChild(style);
-
-        // Wait until the stream is connected before registering the listener.
-        // addResponseEventListener is available immediately on the stream object.
-        stream.addResponseEventListener('MaxiMallCursor', (rawData: string) => {
-            console.log('[MaxiMall] Received hover event payload:', rawData);
-            const cursor = rawData.trim();
-            if (cursor.includes('pointer')) {
-                document.body.classList.add('ps-cursor-pointer');
-            } else if (cursor.includes('default')) {
-                document.body.classList.remove('ps-cursor-pointer');
-            }
-        });
-
-        console.log('[MaxiMall] Pixel Streaming cursor data-channel listener registered.');
-    })();
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ─── Global cursor hide/show on RMB ──────────────────────────────────────────
-    // Completely isolated block to hide the cursor on Right Mouse Button hold.
-    // Preserves existing LMB logic without modification.
-    (function installRmbCursorHideStyle() {
-        const style = document.createElement('style');
-        style.id = 'rmb-cursor-hide';
-        style.textContent = 'html.rmb-down, html.rmb-down * { cursor: none !important; }';
-        document.head.appendChild(style);
-
-        document.addEventListener('mousedown', (event: MouseEvent) => {
-            if (event.button === 2) {
-                document.documentElement.classList.add('rmb-down');
-            }
-        });
-        document.addEventListener('mouseup', (event: MouseEvent) => {
-            if (event.button === 2) {
-                document.documentElement.classList.remove('rmb-down');
-            }
-        });
-        window.addEventListener('mouseup', (event: MouseEvent) => {
-            if (event.button === 2) {
-                document.documentElement.classList.remove('rmb-down');
-            }
-        });
-    })();
-
-    // ─── Clipboard Sync ──────────────────────────────────────────────────────────
-    (function installClipboardSyncHandler() {
-        // Listen for browser paste events and send text to UE5
-        window.addEventListener('paste', (event: ClipboardEvent) => {
-            event.preventDefault();
-            let pasteText = "";
-            if (event.clipboardData) {
-                pasteText = event.clipboardData.getData('text');
-            }
-            if (pasteText) {
-                stream.emitUIInteraction({
-                    Cmd: "ClipboardPaste",
-                    Text: pasteText
-                });
-            }
-        });
-
-        // Listen for copy responses from UE5 and write to browser clipboard
-        stream.addResponseEventListener('MaxiMallClipboard', (rawData: string) => {
-            const trimmedData = rawData.trim();
-            if (trimmedData.startsWith('MaxiMallClipboard ')) {
-                const textToCopy = trimmedData.substring('MaxiMallClipboard '.length).trim();
-                if (textToCopy) {
-                    navigator.clipboard.writeText(textToCopy)
-                        .catch(err => {
-                            console.error('[MaxiMall] Failed to write to client clipboard: ', err);
-                        });
-                }
-            }
-        });
-    })();
-
-    // ─── URL Redirect ────────────────────────────────────────────────────────────
-    // UE5 calls SendOpenURLToBrowser(URL) which sends "open_url: <URL>" via the
-    // Pixel Streaming Response data channel. We listen for it here and open the
-    // URL in a new browser tab.
-    (function installOpenURLHandler() {
-        stream.addResponseEventListener('open_url', (rawData: string) => {
-            const prefix = 'open_url: ';
-            const trimmed = rawData.trim();
-            if (trimmed.startsWith(prefix)) {
-                const url = trimmed.substring(prefix.length).trim();
-                if (url) {
-                    window.open(url, '_blank');
-                }
-            }
-        });
-    })();
-    // ─────────────────────────────────────────────────────────────────────────
 }
-
