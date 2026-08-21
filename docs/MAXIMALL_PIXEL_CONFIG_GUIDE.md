@@ -3,7 +3,24 @@
 > **Repository**: `https://github.com/adavtyan815-art/maximall-pixel-config.git`  
 > **Primary Purpose**: Epic Games Pixel Streaming Infrastructure (Wilbur Signaling Server, Frontend Web Player, WebRTC Media Pipeline)  
 > **Deployed Environment**: AWS EC2 GPU instances (`g4dn.2xlarge` - NVIDIA Tesla T4, AMI `LinuxClientAMI`)  
-> **Runtime Baseline**: Matched 100% against verified AWS EC2 production deployment.  
+> **Runtime Baseline**: Reconciled and validated against verified AWS EC2 production deployment (`/home/ssm-user/web`).  
+
+---
+
+## Table of Contents
+1. [System Overview & Purpose](#1-system-overview--purpose)
+2. [Ecosystem Relationships & Contracts](#2-ecosystem-relationships--contracts)
+3. [Signaling & Web Server Architecture](#3-signaling--web-server-architecture)
+4. [Frontend Web Player Architecture (`Frontend/`)](#4-frontend-web-player-architecture-frontend)
+5. [Data Channel Protocols & User Experience Features](#5-data-channel-protocols--user-experience-features)
+6. [Repository Structure: Source vs. Runtime Outputs](#6-repository-structure-source-vs-runtime-outputs)
+7. [Build & Packaging Pipeline](#7-build--packaging-pipeline)
+8. [Protected Runtime Invariants (DO NOT BREAK THESE RULES)](#8-protected-runtime-invariants-do-not-break-these-rules)
+9. [Deployment & Update Procedure on AWS EC2](#9-deployment--update-procedure-on-aws-ec2)
+10. [Runtime Parity & Verification Standards](#10-runtime-parity--verification-standards)
+11. [Testing Checklist After Modifications](#11-testing-checklist-after-modifications)
+12. [Common Failure Modes & Troubleshooting](#12-common-failure-modes--troubleshooting)
+13. [AI Agent Operating Rules](#13-ai-agent-operating-rules)
 
 ---
 
@@ -14,7 +31,7 @@
 ```mermaid
 flowchart LR
     subgraph ClientBrowser [Browser Client]
-        DOM[HTML5 / WebRTC Video Element]
+        DOM[HTML5 Video Element]
         PlayerTS[player.ts / Socket.io Client]
     end
 
@@ -35,26 +52,28 @@ flowchart LR
     PlayerTS <-->|Socket.io Keepalive & Idle Timer| BackendOrchestrator
 ```
 
-### The Ecosystem Relationships:
-1. **`awsTutorial` (Unreal Engine 5 Project)**:
-   - Houses the C++ showroom and room constructor logic.
-   - Encodes viewport frames via NVIDIA NVENC hardware encoder.
-   - Connects locally to Wilbur on port 8888 as a Streamer using the Cirrus WebSocket protocol.
-2. **`maximall-pixel-config` (This Repository)**:
-   - Deployed at `/home/ssm-user/web/` on the AWS GPU instance AMI.
-   - Runs `SignallingWebServer` (Wilbur) on port 8000.
-   - Serves the compiled WebRTC frontend player (`player.html`, `player.js`).
-   - Handles WebRTC SDP offer/answer exchanges and ICE candidates.
-3. **`maximall-web` (Orchestration & Reverse Proxy)**:
-   - Reverse-proxies user browser traffic to the GPU instance's private IP (`172.31.x.x:8000`).
-   - Receives Socket.io heartbeats and user-activity pings from `player.ts`.
-   - Controls instance lifecycle (Start, Stop, Prewarm, Recycle).
+---
+
+## 2. Ecosystem Relationships & Contracts
+
+### 2.1 Relationship with `awsTutorial` (Unreal Engine 5)
+- **Local Streamer Connection**: The packaged Unreal Engine application launches on the same EC2 instance and connects to Wilbur over localhost on TCP port `8888` via the Cirrus protocol.
+- **Media Encoding**: Unreal Engine captures frames directly from the GPU and encodes H.264/H.265 video via NVIDIA NVENC.
+- **Bidirectional Data Channel**: WebRTC data channels transmit input events (mouse, keyboard, touch) to UE5 and receive application responses (URL redirects, cursor changes).
+
+### 2.2 Relationship with `maximall-web` (Orchestration Backend)
+- **Intra-VPC Private-IP Proxy**: `maximall-web` reverse-proxies user browser traffic (`/instance/:uuid/ws`) directly to the GPU instance private IP on port `8000` (`http://172.31.x.x:8000/`).
+- **Socket.io Control Channel**: `player.ts` connects back to `maximall-web`'s origin to exchange lifecycle events:
+  - `display-start`: Registers the active display session with the orchestrator.
+  - `heartbeat`: 10-second ping maintaining instance lease.
+  - `user-activity`: Debounced notification that resets backend inactivity timers.
+  - `instance-stopping`: Notification from backend instructing the player to redirect cleanly before EC2 shutdown.
 
 ---
 
-## 2. Signaling & Web Server Architecture
+## 3. Signaling & Web Server Architecture
 
-### 2.1 Configuration (`SignallingWebServer/config.json`)
+### 3.1 Server Configuration (`SignallingWebServer/config.json`)
 ```json
 {
   "log_folder": "logs",
@@ -79,7 +98,7 @@ flowchart LR
 }
 ```
 
-### 2.2 Network Ports & Protocols:
+### 3.2 Network Ports & Protocols:
 | Port | Protocol | Purpose | Internal / External |
 |---|---|---|---|
 | **8000** | TCP / HTTP & WS | Player web assets & WebRTC signaling | Reverse-proxied by `maximall-web` |
@@ -90,9 +109,9 @@ flowchart LR
 
 ---
 
-## 3. Frontend Web Player Architecture (`Frontend/`)
+## 4. Frontend Web Player Architecture (`Frontend/`)
 
-### 3.1 Key Runtime Features in `player.ts`:
+### 4.1 Key Implementation Details in `player.ts`:
 
 1. **Global Cursor Sentinel Class (`lmb-down`)**:
    - Injects `<style id="lmb-cursor-hide">html.lmb-down, html.lmb-down * { cursor: none !important; }</style>`.
@@ -117,7 +136,15 @@ flowchart LR
 
 ---
 
-## 4. Repository Structure: Source vs. Runtime Outputs
+## 5. Data Channel Protocols & User Experience Features
+
+- **Hovering Mouse Mode**: Users interact with 3D UI widgets without capturing mouse pointer lock.
+- **Unthrottled Mouse Pipeline**: `MouseControllerHovering.ts` and `MouseControllerLocked.ts` transmit mouse events with zero artificial delay for crisp, immediate camera rotation.
+- **URL Redirection**: Dispatched from UE5 PlayerController via data channel to open external web links in a new browser tab.
+
+---
+
+## 6. Repository Structure: Source vs. Runtime Outputs
 
 ```
 maximall-pixel-config (Root)
@@ -148,13 +175,13 @@ maximall-pixel-config (Root)
 │       ├── css/                                (showcase.css, stresstest.css)
 │       └── images/                             (Favicons, test backgrounds)
 └── docs/                                       [DOCUMENTATION]
-    ├── MAXIMALL_PIXEL_CONFIG_GUIDE.md          (THIS MASTER GUIDE)
-    └── archive/                                (Historical reports)
+    ├── CLAUDE.md                               (AI Agent operational guide)
+    └── MAXIMALL_PIXEL_CONFIG_GUIDE.md          (THIS MASTER GUIDE)
 ```
 
 ---
 
-## 5. Build & Packaging Pipeline
+## 7. Build & Packaging Pipeline
 
 ### Compilation Commands:
 ```bash
@@ -172,19 +199,19 @@ npm run build
 
 ---
 
-## 6. Protected Runtime Invariants (DO NOT BREAK THESE RULES)
+## 8. Protected Runtime Invariants (DO NOT BREAK THESE RULES)
 
 > [!IMPORTANT]
 > ### RUNTIME INTEGRITY RULES
-> 1. **No Artificial Mouse Throttling**: Never introduce `setTimeout` or `requestAnimationFrame` throttles into `MouseControllerHovering.ts` or `MouseControllerLocked.ts`. Throttling creates severe mouse lag in 3D camera controls.
+> 1. **No Artificial Mouse Throttling**: Never introduce `setTimeout` or `requestAnimationFrame` throttles into `MouseControllerHovering.ts` or `MouseControllerLocked.ts`.
 > 2. **Preserve Russian User Dialogs**: Inactivity modals and user alerts must remain in clean, professional Russian.
-> 3. **Preserve Socket.io Event Names**: `display-start`, `heartbeat`, `user-activity`, `instance-stopping`, `player-disconnect` are strictly bound to `maximall-web`.
-> 4. **`http_root` Path on Linux**: `config.json` must specify `"http_root": "/home/ssm-user/web/SignallingWebServer/www"` for production Linux AMI compatibility.
-> 5. **`HoveringMouse: true` Default**: The player must default to hovering mouse mode so users can interact with UI widgets without capturing mouse pointer lock.
+> 3. **Preserve Socket.io Event Names**: `display-start`, `heartbeat`, `user-activity`, `instance-stopping`, and `player-disconnect` are strictly bound to `maximall-web`.
+> 4. **`http_root` Path on Linux**: `config.json` must specify `"http_root": "/home/ssm-user/web/SignallingWebServer/www"`.
+> 5. **`HoveringMouse: true` Default**: The player must default to hovering mouse mode.
 
 ---
 
-## 7. Deployment & Update Procedure on AWS EC2
+## 9. Deployment & Update Procedure on AWS EC2
 
 1. **Log in to EC2 via AWS Systems Manager (SSM)**:
    ```bash
@@ -208,4 +235,44 @@ npm run build
    ```
 
 ---
-*Document Version: 1.0.0 — Canonical Source of Truth for maximall-pixel-config*
+
+## 10. Runtime Parity & Verification Standards
+
+- **Source & Configuration Parity**: Source code in `Frontend/`, `Signalling/`, `Common/`, and configuration in `SignallingWebServer/config.json` are verified matches with the proven AWS deployment.
+- **Static Asset Parity**: Static files (`player.html`, `showcase.html`, `stresstest.html`, `uiless.html`, CSS, icons, and image assets) are byte-for-byte identical.
+- **Bundle Non-Determinism**: Compiled Webpack JavaScript bundles (`player.js`, `showcase.js`, `stresstest.js`, `uiless.js`) may exhibit minor byte-level variance due to build timestamps and Webpack module ID ordering, while preserving 100% functional and behavioral parity.
+
+---
+
+## 11. Testing Checklist After Modifications
+
+- [ ] `npm run build` completes with exit code 0.
+- [ ] `npm run build:dev` in `Frontend/implementations/typescript` generates `SignallingWebServer/www/player.js`.
+- [ ] `player.html` contains the Russian idle warning overlay.
+- [ ] Mouse camera rotation is smooth and unthrottled.
+- [ ] Socket.io connection to `maximall-web` emits `display-start` and regular heartbeats.
+
+---
+
+## 12. Common Failure Modes & Troubleshooting
+
+1. **Black Screen on Connect**:
+   - Verify Unreal Engine is running and connected to port `8888`.
+   - Check Wilbur logs: `tail -f /home/ssm-user/web/SignallingWebServer/logs/wilbur.log`.
+2. **Inactivity Modal Not Dismissing**:
+   - Ensure user input events are firing on `document` and resetting `startIdleTimer()`.
+3. **Mouse Pointer Stuck Hidden / Visible**:
+   - Check `html.lmb-down` class toggling in DOM elements during `mousedown`/`mouseup`.
+
+---
+
+## 13. AI Agent Operating Rules
+
+*(Mandatory instructions for Antigravity, Claude Code, and autonomous agents)*:
+1. **Read `docs/CLAUDE.md` First**, followed by this master guide.
+2. **Never commit modified compiled bundles without rebuilding from source**.
+3. **Never push directly to `main` without validating that `npm run build` succeeds**.
+4. **Preserve Russian user-facing text and Socket.io event contracts**.
+
+---
+*Document Version: 1.1.0 — Canonical Source of Truth for maximall-pixel-config*
