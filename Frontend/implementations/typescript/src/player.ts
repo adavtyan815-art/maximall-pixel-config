@@ -25,7 +25,7 @@ declare global {
 (function installCursorHideStyle() {
     const style = document.createElement('style');
     style.id = 'lmb-cursor-hide';
-    style.textContent = 'html.lmb-down:not(.planner-2d-active), html.lmb-down:not(.planner-2d-active) * { cursor: none !important; }';
+    style.textContent = 'html.lmb-down, html.lmb-down * { cursor: none !important; }';
     document.head.appendChild(style);
 
     document.addEventListener('mousedown', (event: MouseEvent) => {
@@ -315,13 +315,6 @@ document.body.onload = function() {
 
 	// Create the main Pixel Streaming object for interfacing with the web-API of Pixel Streaming
 	const stream = new PixelStreaming(config);
-	stream.addResponseEventListener('PlannerMode', (rawData: string) => {
-		if (rawData.includes('2D')) {
-			document.documentElement.classList.add('planner-2d-active');
-		} else {
-			document.documentElement.classList.remove('planner-2d-active');
-		}
-	});
 
 	const application = new Application({
 		stream,

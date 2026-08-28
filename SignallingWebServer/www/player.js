@@ -23348,7 +23348,7 @@ PixelStreamingApplicationStyles.applyStyleSheet();
 (function installCursorHideStyle() {
     const style = document.createElement('style');
     style.id = 'lmb-cursor-hide';
-    style.textContent = 'html.lmb-down:not(.planner-2d-active), html.lmb-down:not(.planner-2d-active) * { cursor: none !important; }';
+    style.textContent = 'html.lmb-down, html.lmb-down * { cursor: none !important; }';
     document.head.appendChild(style);
     document.addEventListener('mousedown', (event) => {
         if (event.button === 0) {
@@ -23714,15 +23714,6 @@ document.body.onload = function () {
         window.addEventListener('mouseup', (event) => {
             if (event.button === 2) {
                 document.documentElement.classList.remove('rmb-down');
-            }
-        });
-
-        // Listen for 2D/3D planner mode toggle using the existing Pixel Streaming response pattern
-        stream.addResponseEventListener('PlannerMode', (rawData) => {
-            if (rawData.includes('2D')) {
-                document.documentElement.classList.add('planner-2d-active');
-            } else {
-                document.documentElement.classList.remove('planner-2d-active');
             }
         });
     })();
