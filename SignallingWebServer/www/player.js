@@ -23348,7 +23348,7 @@ PixelStreamingApplicationStyles.applyStyleSheet();
 (function installCursorHideStyle() {
     const style = document.createElement('style');
     style.id = 'lmb-cursor-hide';
-    style.textContent = 'html.lmb-down, html.lmb-down * { cursor: none !important; }';
+    style.textContent = 'html.lmb-down:not(.planner-2d-active), html.lmb-down:not(.planner-2d-active) * { cursor: none !important; }';
     document.head.appendChild(style);
     document.addEventListener('mousedown', (event) => {
         if (event.button === 0) {
@@ -23763,6 +23763,15 @@ document.body.onload = function () {
             }
         });
     })();
+    stream.addResponseEventListener("handle_responses", (response) => {
+        if (typeof response === 'string') {
+            if (response.indexOf("PlannerMode:2D") !== -1) {
+                document.documentElement.classList.add('planner-2d-active');
+            } else if (response.indexOf("PlannerMode:3D") !== -1 || response.indexOf("PlannerMode:Closed") !== -1) {
+                document.documentElement.classList.remove('planner-2d-active');
+            }
+        }
+    });
     // ─────────────────────────────────────────────────────────────────────────
 };
 
